@@ -1,5 +1,62 @@
 #include <windows.h>
 
+#define internal static
+#define global_variable static
+#define local_persist static
+
+global_variable int Running;
+global_variable HBITMAP Bitmap;
+global_variable BITMAPINFO BitmapInfo;
+global_variable HDC   DeviceCompatibleDC;
+global_variable void *BitmapMemory;
+
+internal void
+Win32ResizeDIBSection(int Width,
+                      int Height)
+{
+    //TODO(rajat): Bulletproof this
+    // Maybe first first, then free after if it failes
+
+    if(Bitmap)
+    {
+        DeleteObject(Bitmap);
+    }
+
+    if(!DeviceCompatibleDC)
+    {
+        DeviceCompatibleDC = CreateCompatibleDC(0);
+    }
+
+    BitmapInfo.bmiHeader.biSize = sizeof(BitmapInfo.bmiHeader);
+    BitmapInfo.bmiHeader.biWidth = Width;
+    BitmapInfo.bmiHeader.biHeight = Height;
+    BitmapInfo.bmiHeader.biPlanes = 1;
+    BitmapInfo.bmiHeader.biBitCount = 32;
+
+    Bitmap = CreateDIBSection(
+        DeviceCompatibleDC,
+        &BitmapInfo,
+        DIB_RGB_COLORS,
+        &BitmapMemory,
+        0,
+        0);
+
+    ReleaseDC(0, DeviceCompatibleDC);
+}
+
+internal void
+Win32UpdateWindow(HDC DeviceContext, int X, int Y, int Width, int Height)
+{
+    StretchDIBits(
+        DeviceContext,
+        X, Y, Width, Height,
+        X, Y, Width, Height,
+        BitmapMemory,
+        &BitmapInfo,
+        DIB_RGB_COLORS,
+        SRCCOPY);
+}
+
 LRESULT CALLBACK
 SparkleWindowCallback (
     HWND Window,
@@ -15,17 +72,25 @@ SparkleWindowCallback (
 
     case WM_SIZE:
     {
-         OutputDebugStringA("WM_SIZE\n");
+        RECT WindowRect;
+        GetClientRect(Window, &WindowRect);
+
+        int Width = WindowRect.right - WindowRect.left;
+        int Height = WindowRect.bottom - WindowRect.top;
+
+        Win32ResizeDIBSection(Width, Height);
+        OutputDebugStringA("WM_SIZE\n");
     }break;
 
     case WM_CLOSE:
     {
-        OutputDebugStringA("WM_CLOSE\n");
+        Running = false;
     }break;
 
     case WM_DESTROY:
     {
-        OutputDebugStringA("WM_DESTROY\n");
+        // TODO(rajat): Handle this as a error!
+        Running = false;
     }break;
 
     case WM_ACTIVATEAPP:
@@ -45,6 +110,7 @@ SparkleWindowCallback (
 
         static DWORD Operation = WHITENESS;
 
+        Win32UpdateWindow(DC, X, Y, Width, Height);
         PatBlt(DC, X, Y, Width, Height, Operation);
 
         if (Operation == WHITENESS)
@@ -100,7 +166,8 @@ int WinMain(
 
         if(Window)
         {
-            for(;;)
+            Running = true;
+            while(Running)
             {
                 MSG Message = {};
 
