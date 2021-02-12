@@ -35,7 +35,7 @@ CTRL-S       Start incremental search.
  CTRL-S      Moves to next occurrence.
  CTRL-R      Moves to previous occurrence.
 
-ALT-0        Query Replace.
+ALT-O        Query Replace.
 ALT-L        Replace inside block. 
 
 ALT-[        Begin recording keyboard macro.

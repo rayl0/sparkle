@@ -5,6 +5,10 @@
 ;
 ; - Casey
 
+(add-to-list 'load-path "C:\Users\Rajat\Downloads\evil")
+(require 'evil)
+(evil-mode 1)
+
 ; Stop Emacs from losing undo information by
 ; setting very high limits for undo buffers
 (setq undo-limit 20000000)
@@ -568,8 +572,8 @@
     nil)
 (setq split-window-preferred-function 'casey-never-split-a-window)
 
-;(add-to-list 'default-frame-alist '(font . "sans-serif"))
-;(set-face-attribute 'default t :font "sans-serif")
+(add-to-list 'default-frame-alist '(font . "Consolas-13"))
+(set-face-attribute 'default t :font "Consolas-13")
 (set-face-attribute 'font-lock-builtin-face nil :foreground "#DAB98F")
 (set-face-attribute 'font-lock-comment-face nil :foreground "gray50")
 (set-face-attribute 'font-lock-constant-face nil :foreground "olive drab")

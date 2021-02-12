@@ -5,12 +5,18 @@
 #define global_variable static
 #define local_persist static
 
+struct win32_offscreen_buffer
+{
+    // NOTE(rajat): Pixels will always be 32 bit wide.
+
+    BITMAPINFO Info;
+    void *Memory;
+    int Width;
+    int Height;
+}; 
+
 global_variable int Running;
-global_variable BITMAPINFO BitmapInfo;
-global_variable void *BitmapMemory;
-global_variable int BitmapWidth;
-global_variable int BitmapHeight;
-global_variable int BytesPerPixel = 4;
+global_variable win32_offscreen_buffer GlobalBitmapBuffer;
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -22,16 +28,37 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 
-internal void 
-RenderWeirdGraphics(int XOffset, int YOffset)
+struct win32_window_dimensions
 {
-    int Pitch = BitmapWidth * BytesPerPixel;
+    int Width;
+    int Height;
+};
 
-    char* Row = (char*)BitmapMemory;
-    for (int Y = 0; Y < BitmapHeight; ++Y)
+internal win32_window_dimensions
+Win32GetWindowDimensions(HWND Window)
+{
+    win32_window_dimensions Dimensions;
+
+    RECT WindowRect;
+    GetClientRect(Window, &WindowRect);
+
+    Dimensions.Width = WindowRect.right - WindowRect.left;
+    Dimensions.Height = WindowRect.bottom - WindowRect.top;
+
+    return Dimensions;
+}; 
+
+internal void
+RenderWeirdGraphics(win32_offscreen_buffer Buffer, int XOffset, int YOffset)
+{
+    int BytesPerPixel = 4;
+    int Pitch = Buffer.Width * BytesPerPixel;
+
+    char* Row = (char*)Buffer.Memory;
+    for (int Y = 0; Y < Buffer.Height; ++Y)
     {
         u32* Pixel = (u32*)Row;
-        for (int X = 0; X < BitmapWidth; ++X)
+        for (int X = 0; X < Buffer.Width; ++X)
         {
             u8 B = X + XOffset;
             u8 G = Y + YOffset;
@@ -46,42 +73,42 @@ RenderWeirdGraphics(int XOffset, int YOffset)
 }
 
 internal void
-Win32ResizeDIBSection(int Width,
-                      int Height)
+Win32ResizeDIBSection(
+    win32_offscreen_buffer *Buffer,
+    int Width,
+    int Height)
 {
     //TODO(rajat): Bulletproof this
     // Maybe first first, then free after if it failes
 
-    if (BitmapMemory)
+    if(Buffer->Memory)
     {
-        VirtualFree(BitmapMemory, 0, MEM_RELEASE);
+        VirtualFree(Buffer->Memory, 0, MEM_RELEASE);
     }
 
-    BitmapWidth = Width;
-    BitmapHeight = Height;
+    Buffer->Width = Width;
+    Buffer->Height = Height;
 
-    BitmapInfo.bmiHeader.biSize = sizeof(BitmapInfo.bmiHeader);
-    BitmapInfo.bmiHeader.biWidth = BitmapWidth;
-    BitmapInfo.bmiHeader.biHeight = -BitmapHeight;
-    BitmapInfo.bmiHeader.biPlanes = 1;
-    BitmapInfo.bmiHeader.biBitCount = 32;
+    Buffer->Info.bmiHeader.biSize = sizeof(Buffer->Info.bmiHeader);
+    Buffer->Info.bmiHeader.biWidth = Buffer->Width;
+    Buffer->Info.bmiHeader.biHeight = -Buffer->Height;
+    Buffer->Info.bmiHeader.biPlanes = 1;
+    Buffer->Info.bmiHeader.biBitCount = 32;
 
-    u32 BitmapMemorySize = 4 * (BitmapWidth * BitmapHeight);
-    BitmapMemory = VirtualAlloc(0, BitmapMemorySize, MEM_COMMIT, PAGE_READWRITE);
+    u32 BitmapMemorySize = 4 * (Buffer->Width * Buffer->Height);
+    Buffer->Memory = VirtualAlloc(0, BitmapMemorySize, MEM_COMMIT, PAGE_READWRITE);
 }
 
 internal void
-Win32UpdateWindow(HDC DeviceContext, RECT *WindowRect)
+Win32DisplayBuffer(win32_offscreen_buffer Buffer,
+                   HDC DeviceContext, int WindowWidth, int WindowHeight)
 {
-    s32 WindowWidth = WindowRect->right - WindowRect->left;
-    s32 WindowHeight = WindowRect->bottom - WindowRect->top;
-
     StretchDIBits(
         DeviceContext,
         0, 0, WindowWidth, WindowHeight,
-        0, 0, BitmapWidth, BitmapHeight,
-        BitmapMemory,
-        &BitmapInfo,
+        0, 0, Buffer.Width, Buffer.Height,
+        Buffer.Memory,
+        &Buffer.Info,
         DIB_RGB_COLORS,
         SRCCOPY);
 
@@ -102,15 +129,7 @@ SparkleWindowCallback (
 
     case WM_SIZE:
     {
-        RECT WindowRect;
-        GetClientRect(Window, &WindowRect);
 
-        int Width = WindowRect.right - WindowRect.left;
-        int Height = WindowRect.bottom - WindowRect.top;
-
-        Win32ResizeDIBSection(Width, Height);
-  
-        OutputDebugStringA("WM_SIZE\n");
     }break;
 
     case WM_CLOSE:
@@ -134,25 +153,11 @@ SparkleWindowCallback (
         PAINTSTRUCT Struct;
         HDC DC = BeginPaint(Window, &Struct);
 
-        int X = Struct.rcPaint.left;
-        int Y = Struct.rcPaint.top;
-        int Width = Struct.rcPaint.right - Struct.rcPaint.left;
-        int Height = Struct.rcPaint.bottom - Struct.rcPaint.top;
+        win32_window_dimensions Dimensions = Win32GetWindowDimensions(Window);
 
-        static DWORD Operation = WHITENESS;
-        PatBlt(DC, X, Y, Width, Height, Operation);
-
-        RenderWeirdGraphics(0, 0);
-        Win32UpdateWindow(GetDC(Window), &Struct.rcPaint);
-
-        if (Operation == WHITENESS)
-        {
-            Operation = BLACKNESS;
-        }
-        else
-        {
-            Operation = WHITENESS;
-        }
+        RenderWeirdGraphics(GlobalBitmapBuffer, 0, 0);
+        Win32DisplayBuffer(GlobalBitmapBuffer, GetDC(Window),
+                           Dimensions.Width, Dimensions.Height);
 
         EndPaint(Window, &Struct);
     }break;
@@ -175,7 +180,7 @@ int WinMain(
 )
 {
     WNDCLASS WindowClass = {};
-    WindowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
+    WindowClass.style = CS_HREDRAW|CS_VREDRAW;
     WindowClass.lpfnWndProc = SparkleWindowCallback;
     WindowClass.hInstance = Instance;
     WindowClass.lpszClassName = "SparkleWindowClass";
@@ -195,6 +200,13 @@ int WinMain(
             0,
             Instance,
             0);
+
+
+        win32_window_dimensions Dimensions =
+            Win32GetWindowDimensions(Window);
+
+        Win32ResizeDIBSection(&GlobalBitmapBuffer,
+                              Dimensions.Width, Dimensions.Height);
 
         if(Window)
         {
@@ -217,13 +229,15 @@ int WinMain(
                     DispatchMessage(&Message);
                 }
 
-                RenderWeirdGraphics(XOffset, YOffset);
+                RenderWeirdGraphics(GlobalBitmapBuffer, XOffset, YOffset);
 
                 HDC DC = GetDC(Window);
-                RECT WindowRect;
-                GetClientRect(Window, &WindowRect);
+                win32_window_dimensions Dimensions = Win32GetWindowDimensions(Window);
 
-                Win32UpdateWindow(DC, &WindowRect);
+                Win32DisplayBuffer(GlobalBitmapBuffer, DC,
+                                   Dimensions.Width,
+                                   Dimensions.Height);
+
                 ReleaseDC(Window, DC);
 
                 ++XOffset;

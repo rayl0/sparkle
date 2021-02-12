@@ -1,2 +1,2 @@
 @echo off
-"C:\Users\Rajat\Downloads\emacs-23.4\bin\runemacs.exe" -q -l w:/sparkle/misc/.emacs
+"C:\Program Files\Emacs\x86_64\bin\runemacs.exe"
