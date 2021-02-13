@@ -1,6 +1,10 @@
 #include <windows.h>
 #include <stdint.h>
 
+// TODO(rajat): Probably add xinput for joypad support if you ever
+// get a chance to have a controller.
+// #include <xinput.h>
+
 #define internal static
 #define global_variable static
 #define local_persist static
@@ -49,23 +53,34 @@ Win32GetWindowDimensions(HWND Window)
 }; 
 
 internal void
-RenderWeirdGraphics(win32_offscreen_buffer Buffer, int XOffset, int YOffset)
+RenderWeirdGraphics(win32_offscreen_buffer *Buffer,
+                    int XOffset, int YOffset)
 {
     int BytesPerPixel = 4;
-    int Pitch = Buffer.Width * BytesPerPixel;
+    int Pitch = Buffer->Width * BytesPerPixel;
 
-    char* Row = (char*)Buffer.Memory;
-    for (int Y = 0; Y < Buffer.Height; ++Y)
+    char* Row = (char*)Buffer->Memory;
+    for (int Y = 0; Y < Buffer->Height; ++Y)
     {
         u32* Pixel = (u32*)Row;
-        for (int X = 0; X < Buffer.Width; ++X)
+        u8 Off = {};
+        for (int X = 0; X < Buffer->Width; ++X)
         {
-            u8 B = X + XOffset;
-            u8 G = Y + YOffset;
+            u8 R = 120;
+            u8 B = Off * (X + XOffset);
+            u8 G = Off * (Y + YOffset);
 
-            *Pixel = ((G << 8) | B);
+            *Pixel = ((R << 16) | (G << 8) | B);
 
             ++Pixel;
+            if(Off)
+            {
+                Off = 0;
+            }
+            else
+            {
+                Off = 1;
+            }
         }
 
         Row += Pitch;
@@ -100,15 +115,15 @@ Win32ResizeDIBSection(
 }
 
 internal void
-Win32DisplayBuffer(win32_offscreen_buffer Buffer,
+Win32DisplayBuffer(win32_offscreen_buffer *Buffer,
                    HDC DeviceContext, int WindowWidth, int WindowHeight)
 {
     StretchDIBits(
         DeviceContext,
         0, 0, WindowWidth, WindowHeight,
-        0, 0, Buffer.Width, Buffer.Height,
-        Buffer.Memory,
-        &Buffer.Info,
+        0, 0, Buffer->Width, Buffer->Height,
+        Buffer->Memory,
+        &Buffer->Info,
         DIB_RGB_COLORS,
         SRCCOPY);
 
@@ -127,45 +142,75 @@ SparkleWindowCallback (
     switch(Message)
     {
 
-    case WM_SIZE:
-    {
+        case WM_SIZE:
+        {
 
-    }break;
+        }break;
 
-    case WM_CLOSE:
-    {
-        Running = false;
-    }break;
+        case WM_CLOSE:
+        {
+            Running = false;
+        }break;
 
-    case WM_DESTROY:
-    {
-        // TODO(rajat): Handle this as a error!
-        Running = false;
-    }break;
+        case WM_DESTROY:
+        {
+            // TODO(rajat): Handle this as a error!
+            Running = false;
+        }break;
 
-    case WM_ACTIVATEAPP:
-    {
-        OutputDebugStringA("WM_ACTIVEAPP\n");
-    }break;
+        case WM_ACTIVATEAPP:
+        {
+            OutputDebugStringA("WM_ACTIVEAPP\n");
+        }break;
 
-    case WM_PAINT:
-    {
-        PAINTSTRUCT Struct;
-        HDC DC = BeginPaint(Window, &Struct);
+        case WM_SYSKEYUP:
+        case WM_SYSKEYDOWN:
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+        {
 
-        win32_window_dimensions Dimensions = Win32GetWindowDimensions(Window);
+            // NOTE(rajat): We are recieving two key events per
+            // key, maybe we want to change that for better.
 
-        RenderWeirdGraphics(GlobalBitmapBuffer, 0, 0);
-        Win32DisplayBuffer(GlobalBitmapBuffer, GetDC(Window),
-                           Dimensions.Width, Dimensions.Height);
+            u32 VkCode = WParam;
+            bool WasDown =  ((LParam & (1 << 30)) != 0);
+            bool IsDown  =  ((LParam & (1 << 31)) == 0);
 
-        EndPaint(Window, &Struct);
-    }break;
+            if(WasDown != IsDown)
+            {
+                switch(VkCode)
+                {
+                    case 'A':
+                    {
+                        OutputDebugStringA("A\n");
+                    }break;
 
-    default:
-    {
-        Result = DefWindowProc(Window, Message, WParam, LParam);
-    }break;
+                    case 'B':
+                    {
+                        OutputDebugStringA("B\n");
+                    }break;
+               }
+            }
+        }break;
+
+        case WM_PAINT:
+        {
+            PAINTSTRUCT Struct;
+            HDC DC = BeginPaint(Window, &Struct);
+
+            win32_window_dimensions Dimensions = Win32GetWindowDimensions(Window);
+
+            RenderWeirdGraphics(&GlobalBitmapBuffer, 0, 0);
+            Win32DisplayBuffer(&GlobalBitmapBuffer, GetDC(Window),
+                               Dimensions.Width, Dimensions.Height);
+
+            EndPaint(Window, &Struct);
+        }break;
+
+        default:
+        {
+            Result = DefWindowProc(Window, Message, WParam, LParam);
+        }break;
 
     }
 
@@ -229,12 +274,12 @@ int WinMain(
                     DispatchMessage(&Message);
                 }
 
-                RenderWeirdGraphics(GlobalBitmapBuffer, XOffset, YOffset);
+                RenderWeirdGraphics(&GlobalBitmapBuffer, XOffset, YOffset);
 
                 HDC DC = GetDC(Window);
                 win32_window_dimensions Dimensions = Win32GetWindowDimensions(Window);
 
-                Win32DisplayBuffer(GlobalBitmapBuffer, DC,
+                Win32DisplayBuffer(&GlobalBitmapBuffer, DC,
                                    Dimensions.Width,
                                    Dimensions.Height);
 
